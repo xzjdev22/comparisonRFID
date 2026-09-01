@@ -2,9 +2,10 @@
 // 1. 코드 최상단 상수 정의
 // ==========================================
 const SHEET_REALTIME = "실시간전송내용";
-const SHEET_TARGET = "청구대상건";
-const SHEET_SERVICE = "서비스내용 입력";
-const SHEET_RESULT = "실전송대비 청구기록 비교";
+const SHEET_TARGET_ALL = "청구대상건";
+const SHEET_TARGET = "청구대상건(요양)";
+const SHEET_SERVICE = "서비스내용 입력(요양)";
+const SHEET_RESULT = "실전송대비 청구기록 비교(요양)";
 const COLOR_POSITIVE = "#d9ead3";
 const COLOR_NEGATIVE = "#f4cccc";
 
@@ -13,7 +14,9 @@ const COLOR_NEGATIVE = "#f4cccc";
  */
 function createComparisonSheet() {
   const startTime = new Date().getTime();
-  Logger.log("🚀 [시작] 실전송대비 청구기록 비교 스크립트 시작");
+  Logger.log(
+    "🚀 [시작] 실전송대비 청구기록 비교 스크립트 시작 (고차함수/초고속 버전)",
+  );
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
@@ -37,7 +40,7 @@ function createComparisonSheet() {
   resultSheet = ss.insertSheet(SHEET_RESULT);
 
   // ----------------------------------------------------
-  // 2. 청구대상건 원본 전체 복사
+  // 2. 청구대상건 원본 전체 복사 (서식/멘션/링크 보존)
   // ----------------------------------------------------
   const targetRange = targetSheet.getDataRange();
   const lastRow = targetRange.getLastRow();
@@ -67,36 +70,32 @@ function createComparisonSheet() {
   // ----------------------------------------------------
   // 4. 서비스내용 입력 시트 데이터 맵핑 (PK: 수급자명 + YYYY-MM-DD)
   // ----------------------------------------------------
-  Logger.log("4️⃣ [서비스내용 입력] 필터 확인 및 PK 데이터 맵핑 생성 중...");
+  Logger.log("4️⃣ [서비스내용 입력] PK 데이터 맵핑 생성 중...");
   const serviceValues = serviceSheet.getDataRange().getValues();
-  const serviceMap = new Map();
 
-  for (let r = 2; r <= serviceValues.length; r++) {
-    // sheet.isRowHiddenByFilter(row) 로 정확히 변경
-    if (serviceSheet.isRowHiddenByFilter(r)) continue;
-
-    const rowData = serviceValues[r - 1];
+  // 헤더(1행) 제외 후 reduce로 Map 구성
+  const serviceMap = serviceValues.slice(1).reduce((map, rowData) => {
     const recipientName = String(rowData[15] || "").trim(); // P열 (0-index 15)
     const rawDate = rowData[4]; // E열 (0-index 4)
-
     const dateStr = formatDateToYYYYMMDD(rawDate);
-    if (!recipientName || !dateStr) continue;
 
-    const pk = `${recipientName}_${dateStr}`;
+    if (recipientName && dateStr) {
+      const pk = `${recipientName}_${dateStr}`;
+      map.set(pk, {
+        provideTime: rowData[12], // M열 (0-index 12)
+        startTime: rowData[9], // J열 (0-index 9)
+        endTime: rowData[11], // L열 (0-index 11)
+      });
+    }
+    return map;
+  }, new Map());
 
-    serviceMap.set(pk, {
-      row: r,
-      provideTime: rowData[12], // M열 (0-index 12)
-      startTime: rowData[9], // J열 (0-index 9)
-      endTime: rowData[11], // L열 (0-index 11)
-    });
-  }
   Logger.log(`   └─ 매칭 가능 수급자 PK 수: ${serviceMap.size}개`);
 
   // ----------------------------------------------------
   // 5. 추가 열 (제공시간, 시작, 종료) 헤더 및 데이터 세팅
   // ----------------------------------------------------
-  Logger.log("5️⃣ [데이터 연동] 비교 대상 열 추가 및 매칭 데이터 작성 중...");
+  Logger.log("5️⃣ [데이터 연동] 데이터 map 처리 및 일괄 쓰기 중...");
   const newColStart = 8; // H열 (C,E열 삭제 후 G열 오른쪽에 추가)
 
   // 헤더 추가
@@ -104,7 +103,7 @@ function createComparisonSheet() {
     .getRange(1, newColStart, 1, 3)
     .setValues([["제공시간", "시작", "종료"]]);
 
-  // 원본 열 너비 한 번에 설정
+  // 열 너비 설정
   resultSheet.setColumnWidth(newColStart, serviceSheet.getColumnWidth(13));
   resultSheet.setColumnWidth(newColStart + 1, serviceSheet.getColumnWidth(10));
   resultSheet.setColumnWidth(newColStart + 2, serviceSheet.getColumnWidth(12));
@@ -119,30 +118,22 @@ function createComparisonSheet() {
     );
 
   const targetValues = targetSheet.getDataRange().getValues();
-  const appendedData = [];
 
-  for (let r = 2; r <= lastRow; r++) {
-    // sheet.isRowHiddenByFilter(row) 로 정확히 변경
-    if (targetSheet.isRowHiddenByFilter(r)) {
-      appendedData.push(["", "", ""]);
-      continue;
-    }
-
-    const rowData = targetValues[r - 1];
-    const recipientName = String(rowData[1] || "").trim(); // B열 (0-index 1)
-    const rawDate = rowData[7]; // H열 (0-index 7)
+  // map 함수를 통해 매칭 데이터 배열 생성 (헤더 제외)
+  const appendedData = targetValues.slice(1).map((rowData) => {
+    const recipientName = String(rowData[1] || "").trim(); // B열 (수급자성명, 0-index 1)
+    const rawDate = rowData[7]; // H열 (시작시간, 0-index 7)
 
     const dateStr = formatDateToYYYYMMDD(rawDate);
     const pk = `${recipientName}_${dateStr}`;
 
-    if (serviceMap.has(pk)) {
-      const match = serviceMap.get(pk);
-      appendedData.push([match.provideTime, match.startTime, match.endTime]);
-    } else {
-      appendedData.push(["", "", ""]);
-    }
-  }
+    const match = serviceMap.get(pk);
+    return match
+      ? [match.provideTime, match.startTime, match.endTime]
+      : ["", "", ""];
+  });
 
+  // 매칭 결과 데이터를 단 1회의 setValues로 일괄 반영
   if (appendedData.length > 0) {
     resultSheet
       .getRange(2, newColStart, appendedData.length, 3)
@@ -229,7 +220,14 @@ function createComparisonSheet() {
   // 7. 시트 순서 정렬
   // ----------------------------------------------------
   Logger.log("7️⃣ [시트 정렬] 지정된 순서대로 시트 배치 중...");
-  const orderList = [SHEET_REALTIME, SHEET_TARGET, SHEET_SERVICE, SHEET_RESULT];
+  const orderList = [
+    SHEET_REALTIME,
+    SHEET_TARGET_ALL,
+    SHEET_TARGET,
+    SHEET_SERVICE,
+    SHEET_RESULT,
+  ];
+
   orderList.forEach((sheetName, index) => {
     const sh = ss.getSheetByName(sheetName);
     if (sh) {
