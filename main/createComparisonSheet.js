@@ -14,9 +14,7 @@ const COLOR_NEGATIVE = "#f4cccc";
  */
 function createComparisonSheet() {
   const startTime = new Date().getTime();
-  Logger.log(
-    "🚀 [시작] 실전송대비 청구기록 비교 스크립트 시작 (고차함수/초고속 버전)",
-  );
+  Logger.log("🚀 [시작] 실전송대비 청구기록 비교 스크립트 시작");
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
@@ -61,11 +59,15 @@ function createComparisonSheet() {
   );
 
   // ----------------------------------------------------
-  // 3. C열(인정번호) 및 E열(핸드폰번호) 제거
+  // 3. 열 삭제: C열(인정번호), E열(핸드폰번호), G열(원본 총시간)
   // ----------------------------------------------------
-  Logger.log("3️⃣ [열 삭제] C열(인정번호), E열(핸드폰번호) 삭제 중...");
-  resultSheet.deleteColumn(5); // 원본 E열 삭제
-  resultSheet.deleteColumn(3); // 원본 C열 삭제
+  Logger.log(
+    "3️⃣ [열 삭제] C열(인정번호), E열(핸드폰번호), 총시간 열 삭제 중...",
+  );
+  resultSheet.deleteColumn(7); // 원본 G열(총시간) 삭제
+  resultSheet.deleteColumn(5); // 원본 E열(핸드폰번호) 삭제
+  resultSheet.deleteColumn(3); // 원본 C열(인정번호) 삭제
+  // ※ 열 삭제 결과: E열=시작시간, F열=종료시간이 됩니다.
 
   // ----------------------------------------------------
   // 4. 서비스내용 입력 시트 데이터 맵핑 (PK: 수급자명 + YYYY-MM-DD)
@@ -73,7 +75,7 @@ function createComparisonSheet() {
   Logger.log("4️⃣ [서비스내용 입력] PK 데이터 맵핑 생성 중...");
   const serviceValues = serviceSheet.getDataRange().getValues();
 
-  // 헤더(1행) 제외 후 reduce로 Map 구성
+  // 헤더(1행) 제외 후 reduce로 Map 구성 (제공시간, 시작, 종료)
   const serviceMap = serviceValues.slice(1).reduce((map, rowData) => {
     const recipientName = String(rowData[15] || "").trim(); // P열 (0-index 15)
     const rawDate = rowData[4]; // E열 (0-index 4)
@@ -82,9 +84,9 @@ function createComparisonSheet() {
     if (recipientName && dateStr) {
       const pk = `${recipientName}_${dateStr}`;
       map.set(pk, {
-        provideTime: rowData[12], // M열 (0-index 12)
-        startTime: rowData[9], // J열 (0-index 9)
-        endTime: rowData[11], // L열 (0-index 11)
+        provideTime: rowData[12], // M열 (0-index 12) - 제공시간
+        startTime: rowData[9], // J열 (0-index 9) - 시작
+        endTime: rowData[11], // L열 (0-index 11) - 종료
       });
     }
     return map;
@@ -93,10 +95,10 @@ function createComparisonSheet() {
   Logger.log(`   └─ 매칭 가능 수급자 PK 수: ${serviceMap.size}개`);
 
   // ----------------------------------------------------
-  // 5. 추가 열 (제공시간, 시작, 종료) 헤더 및 데이터 세팅
+  // 5. 연동 열 (제공시간, 시작, 종료) 헤더 및 데이터 세팅
   // ----------------------------------------------------
   Logger.log("5️⃣ [데이터 연동] 데이터 map 처리 및 일괄 쓰기 중...");
-  const newColStart = 8; // H열 (C,E열 삭제 후 G열 오른쪽에 추가)
+  const newColStart = 7; // G열부터 추가 (E,F열이 시작/종료시간이므로 G,H,I열에 연동)
 
   // 헤더 추가
   resultSheet
@@ -104,13 +106,13 @@ function createComparisonSheet() {
     .setValues([["제공시간", "시작", "종료"]]);
 
   // 열 너비 설정
-  resultSheet.setColumnWidth(newColStart, serviceSheet.getColumnWidth(13));
-  resultSheet.setColumnWidth(newColStart + 1, serviceSheet.getColumnWidth(10));
-  resultSheet.setColumnWidth(newColStart + 2, serviceSheet.getColumnWidth(12));
+  resultSheet.setColumnWidth(newColStart, serviceSheet.getColumnWidth(13)); // M열 너비 (제공시간)
+  resultSheet.setColumnWidth(newColStart + 1, serviceSheet.getColumnWidth(10)); // J열 너비 (시작)
+  resultSheet.setColumnWidth(newColStart + 2, serviceSheet.getColumnWidth(12)); // L열 너비 (종료)
 
-  // 헤더 서식 복사
+  // 헤더 서식 복사 (F열 서식을 G~I열에 복사)
   resultSheet
-    .getRange(1, 7)
+    .getRange(1, 6)
     .copyTo(
       resultSheet.getRange(1, newColStart, 1, 3),
       SpreadsheetApp.CopyPasteType.PASTE_FORMAT,
@@ -140,16 +142,21 @@ function createComparisonSheet() {
       .setValues(appendedData);
   }
 
+  // 새로 추가된 연동 범위(G~I열) 전체에 붙어있는 드롭다운(데이터 유효성 검사) 완벽 제거
+  resultSheet.getRange(1, newColStart, lastRow, 3).clearDataValidations();
+
   // ----------------------------------------------------
   // 6. 동적 조건부 서식 (Conditional Formatting Rules) 적용
   // ----------------------------------------------------
   Logger.log("6️⃣ [조건부 서식] 동적 색상 조건부 서식 적용 중...");
   const rules = [];
 
-  // 1) 총시간(E열) vs 제공시간(H열)
+  // 1) 시작시간(E열) vs 시작(H열) [hh:mm 비교]
   rules.push(
     SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=AND($E2<>"", $H2<>"", INT($E2)=INT($H2))')
+      .whenFormulaSatisfied(
+        '=AND($E2<>"", $H2<>"", TEXT($E2,"hh:mm")=TEXT($H2,"hh:mm"))',
+      )
       .setBackground(COLOR_POSITIVE)
       .setRanges([
         resultSheet.getRange(`E2:E${lastRow}`),
@@ -157,7 +164,9 @@ function createComparisonSheet() {
       ])
       .build(),
     SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=AND($E2<>"", $H2<>"", INT($E2)<>INT($H2))')
+      .whenFormulaSatisfied(
+        '=AND($E2<>"", $H2<>"", TEXT($E2,"hh:mm")<>TEXT($H2,"hh:mm"))',
+      )
       .setBackground(COLOR_NEGATIVE)
       .setRanges([
         resultSheet.getRange(`E2:E${lastRow}`),
@@ -166,7 +175,7 @@ function createComparisonSheet() {
       .build(),
   );
 
-  // 2) 시작시간(F열) vs 시작(I열) [hh:mm 비교]
+  // 2) 종료시간(F열) vs 종료(I열) [hh:mm 비교]
   rules.push(
     SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied(
@@ -186,30 +195,6 @@ function createComparisonSheet() {
       .setRanges([
         resultSheet.getRange(`F2:F${lastRow}`),
         resultSheet.getRange(`I2:I${lastRow}`),
-      ])
-      .build(),
-  );
-
-  // 3) 종료시간(G열) vs 종료(J열) [hh:mm 비교]
-  rules.push(
-    SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied(
-        '=AND($G2<>"", $J2<>"", TEXT($G2,"hh:mm")=TEXT($J2,"hh:mm"))',
-      )
-      .setBackground(COLOR_POSITIVE)
-      .setRanges([
-        resultSheet.getRange(`G2:G${lastRow}`),
-        resultSheet.getRange(`J2:J${lastRow}`),
-      ])
-      .build(),
-    SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied(
-        '=AND($G2<>"", $J2<>"", TEXT($G2,"hh:mm")<>TEXT($J2,"hh:mm"))',
-      )
-      .setBackground(COLOR_NEGATIVE)
-      .setRanges([
-        resultSheet.getRange(`G2:G${lastRow}`),
-        resultSheet.getRange(`J2:J${lastRow}`),
       ])
       .build(),
   );
