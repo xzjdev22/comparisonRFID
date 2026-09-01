@@ -133,32 +133,12 @@ function createComparisonSheet() {
   resultSheet.getRange(1, newColStart, lastRow, 3).clearDataValidations();
 
   // ----------------------------------------------------
-  // 5. 조건부 서식 적용 (동적 수식)
+  // 5. 조건부 서식 적용 (시작시간 vs 시작, 종료시간 vs 종료)
   // ----------------------------------------------------
   Logger.log("5️⃣ [조건부 서식] 동적 색상 조건부 서식 적용 중...");
   const rules = [];
 
-  // 1) 총시간 vs 제공시간: G열 vs J열 (정수 비교)
-  rules.push(
-    SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=AND($G2<>"", $J2<>"", $G2=$J2)')
-      .setBackground(COLOR_POSITIVE)
-      .setRanges([
-        resultSheet.getRange(`G2:G${lastRow}`),
-        resultSheet.getRange(`J2:J${lastRow}`),
-      ])
-      .build(),
-    SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=AND($G2<>"", $J2<>"", $G2<>$J2)')
-      .setBackground(COLOR_NEGATIVE)
-      .setRanges([
-        resultSheet.getRange(`G2:G${lastRow}`),
-        resultSheet.getRange(`J2:J${lastRow}`),
-      ])
-      .build(),
-  );
-
-  // 2) 시작시간 vs 시작: H열 vs K열 (hh:mm 비교)
+  // 1) 시작시간 vs 시작: H열 vs K열 (hh:mm 비교)
   rules.push(
     SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied(
@@ -182,7 +162,7 @@ function createComparisonSheet() {
       .build(),
   );
 
-  // 3) 종료시간 vs 종료: I열 vs L열 (hh:mm 비교)
+  // 2) 종료시간 vs 종료: I열 vs L열 (hh:mm 비교)
   rules.push(
     SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied(
