@@ -21,6 +21,7 @@ function createComparisonSheet() {
   // 대상 시트 가져오기
   const targetSheet = ss.getSheetByName(SHEET_TARGET);
   const serviceSheet = ss.getSheetByName(SHEET_SERVICE);
+  const targetAllSheet = ss.getSheetByName(SHEET_TARGET_ALL);
 
   if (!targetSheet || !serviceSheet) {
     Logger.log("❌ [에러] 필수 시트를 찾을 수 없습니다.");
@@ -38,7 +39,7 @@ function createComparisonSheet() {
   resultSheet = ss.insertSheet(SHEET_RESULT);
 
   // ----------------------------------------------------
-  // 2. 청구대상건 원본 전체 복사 (서식/멘션/링크 보존)
+  // 2. 청구대상건 원본 전체 복사 (서식/멘션/링크 완벽 보존)
   // ----------------------------------------------------
   const targetRange = targetSheet.getDataRange();
   const lastRow = targetRange.getLastRow();
@@ -59,23 +60,12 @@ function createComparisonSheet() {
   );
 
   // ----------------------------------------------------
-  // 3. 열 삭제: C열(인정번호), E열(핸드폰번호), G열(원본 총시간)
+  // 3. 서비스내용 입력 시트 데이터 맵핑 (M, J, L열 매칭)
   // ----------------------------------------------------
-  Logger.log(
-    "3️⃣ [열 삭제] C열(인정번호), E열(핸드폰번호), 총시간 열 삭제 중...",
-  );
-  resultSheet.deleteColumn(7); // 원본 G열(총시간) 삭제
-  resultSheet.deleteColumn(5); // 원본 E열(핸드폰번호) 삭제
-  resultSheet.deleteColumn(3); // 원본 C열(인정번호) 삭제
-  // ※ 열 삭제 결과: E열=시작시간, F열=종료시간이 됩니다.
-
-  // ----------------------------------------------------
-  // 4. 서비스내용 입력 시트 데이터 맵핑 (PK: 수급자명 + YYYY-MM-DD)
-  // ----------------------------------------------------
-  Logger.log("4️⃣ [서비스내용 입력] PK 데이터 맵핑 생성 중...");
+  Logger.log("3️⃣ [서비스내용 입력] PK 데이터 맵핑 생성 중...");
   const serviceValues = serviceSheet.getDataRange().getValues();
 
-  // 헤더(1행) 제외 후 reduce로 Map 구성 (제공시간, 시작, 종료)
+  // 헤더 제외 후 Map 구성 (PK: 수급자성명 + YYYY-MM-DD)
   const serviceMap = serviceValues.slice(1).reduce((map, rowData) => {
     const recipientName = String(rowData[15] || "").trim(); // P열 (0-index 15)
     const rawDate = rowData[4]; // E열 (0-index 4)
@@ -92,39 +82,37 @@ function createComparisonSheet() {
     return map;
   }, new Map());
 
-  Logger.log(`   └─ 매칭 가능 수급자 PK 수: ${serviceMap.size}개`);
-
   // ----------------------------------------------------
-  // 5. 연동 열 (제공시간, 시작, 종료) 헤더 및 데이터 세팅
+  // 4. I열 오른쪽(J, K, L열)에 연동 열 추가 배치 및 서식 설정
   // ----------------------------------------------------
-  Logger.log("5️⃣ [데이터 연동] 데이터 map 처리 및 일괄 쓰기 중...");
-  const newColStart = 7; // G열부터 추가 (E,F열이 시작/종료시간이므로 G,H,I열에 연동)
+  Logger.log("4️⃣ [데이터 연동] J, K, L열에 매칭 데이터 배치 중...");
+  const newColStart = 10; // J열 (10번째 열)
 
-  // 헤더 추가
+  // 헤더 입력 (J열: 제공시간, K열: 시작, L열: 종료)
   resultSheet
     .getRange(1, newColStart, 1, 3)
     .setValues([["제공시간", "시작", "종료"]]);
 
-  // 열 너비 설정
-  resultSheet.setColumnWidth(newColStart, serviceSheet.getColumnWidth(13)); // M열 너비 (제공시간)
-  resultSheet.setColumnWidth(newColStart + 1, serviceSheet.getColumnWidth(10)); // J열 너비 (시작)
-  resultSheet.setColumnWidth(newColStart + 2, serviceSheet.getColumnWidth(12)); // L열 너비 (종료)
-
-  // 헤더 서식 복사 (F열 서식을 G~I열에 복사)
+  // 헤더 서식 복사 (I열 서식을 J~L열에 복사)
   resultSheet
-    .getRange(1, 6)
+    .getRange(1, 9)
     .copyTo(
       resultSheet.getRange(1, newColStart, 1, 3),
       SpreadsheetApp.CopyPasteType.PASTE_FORMAT,
       false,
     );
 
+  // 연동 열 너비 설정 (서비스내용 입력 시트 원본 너비 적용)
+  resultSheet.setColumnWidth(10, serviceSheet.getColumnWidth(13)); // M열 너비 -> J열(제공시간) 적용
+  resultSheet.setColumnWidth(11, serviceSheet.getColumnWidth(10)); // J열 너비 -> K열(시작) 적용
+  resultSheet.setColumnWidth(12, serviceSheet.getColumnWidth(12)); // L열 너비 -> L열(종료) 적용
+
   const targetValues = targetSheet.getDataRange().getValues();
 
-  // map 함수를 통해 매칭 데이터 배열 생성 (헤더 제외)
+  // 매칭 데이터 배열 생성 (B열: 수급자성명, H열: 시작시간/일자)
   const appendedData = targetValues.slice(1).map((rowData) => {
-    const recipientName = String(rowData[1] || "").trim(); // B열 (수급자성명, 0-index 1)
-    const rawDate = rowData[7]; // H열 (시작시간, 0-index 7)
+    const recipientName = String(rowData[1] || "").trim(); // B열
+    const rawDate = rowData[7]; // H열
 
     const dateStr = formatDateToYYYYMMDD(rawDate);
     const pk = `${recipientName}_${dateStr}`;
@@ -135,66 +123,85 @@ function createComparisonSheet() {
       : ["", "", ""];
   });
 
-  // 매칭 결과 데이터를 단 1회의 setValues로 일괄 반영
   if (appendedData.length > 0) {
     resultSheet
       .getRange(2, newColStart, appendedData.length, 3)
       .setValues(appendedData);
   }
 
-  // 새로 추가된 연동 범위(G~I열) 전체에 붙어있는 드롭다운(데이터 유효성 검사) 완벽 제거
+  // J, K, L열 데이터 유효성 검사 제거
   resultSheet.getRange(1, newColStart, lastRow, 3).clearDataValidations();
 
   // ----------------------------------------------------
-  // 6. 동적 조건부 서식 (Conditional Formatting Rules) 적용
+  // 5. 조건부 서식 적용 (동적 수식)
   // ----------------------------------------------------
-  Logger.log("6️⃣ [조건부 서식] 동적 색상 조건부 서식 적용 중...");
+  Logger.log("5️⃣ [조건부 서식] 동적 색상 조건부 서식 적용 중...");
   const rules = [];
 
-  // 1) 시작시간(E열) vs 시작(H열) [hh:mm 비교]
+  // 1) 총시간 vs 제공시간: G열 vs J열 (정수 비교)
   rules.push(
     SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied(
-        '=AND($E2<>"", $H2<>"", TEXT($E2,"hh:mm")=TEXT($H2,"hh:mm"))',
-      )
+      .whenFormulaSatisfied('=AND($G2<>"", $J2<>"", $G2=$J2)')
       .setBackground(COLOR_POSITIVE)
       .setRanges([
-        resultSheet.getRange(`E2:E${lastRow}`),
-        resultSheet.getRange(`H2:H${lastRow}`),
+        resultSheet.getRange(`G2:G${lastRow}`),
+        resultSheet.getRange(`J2:J${lastRow}`),
       ])
       .build(),
     SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied(
-        '=AND($E2<>"", $H2<>"", TEXT($E2,"hh:mm")<>TEXT($H2,"hh:mm"))',
-      )
+      .whenFormulaSatisfied('=AND($G2<>"", $J2<>"", $G2<>$J2)')
       .setBackground(COLOR_NEGATIVE)
       .setRanges([
-        resultSheet.getRange(`E2:E${lastRow}`),
-        resultSheet.getRange(`H2:H${lastRow}`),
+        resultSheet.getRange(`G2:G${lastRow}`),
+        resultSheet.getRange(`J2:J${lastRow}`),
       ])
       .build(),
   );
 
-  // 2) 종료시간(F열) vs 종료(I열) [hh:mm 비교]
+  // 2) 시작시간 vs 시작: H열 vs K열 (hh:mm 비교)
   rules.push(
     SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied(
-        '=AND($F2<>"", $I2<>"", TEXT($F2,"hh:mm")=TEXT($I2,"hh:mm"))',
+        '=AND($H2<>"", $K2<>"", TEXT($H2,"hh:mm")=TEXT($K2,"hh:mm"))',
       )
       .setBackground(COLOR_POSITIVE)
       .setRanges([
-        resultSheet.getRange(`F2:F${lastRow}`),
-        resultSheet.getRange(`I2:I${lastRow}`),
+        resultSheet.getRange(`H2:H${lastRow}`),
+        resultSheet.getRange(`K2:K${lastRow}`),
       ])
       .build(),
     SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied(
-        '=AND($F2<>"", $I2<>"", TEXT($F2,"hh:mm")<>TEXT($I2,"hh:mm"))',
+        '=AND($H2<>"", $K2<>"", TEXT($H2,"hh:mm")<>TEXT($K2,"hh:mm"))',
       )
       .setBackground(COLOR_NEGATIVE)
       .setRanges([
-        resultSheet.getRange(`F2:F${lastRow}`),
+        resultSheet.getRange(`H2:H${lastRow}`),
+        resultSheet.getRange(`K2:K${lastRow}`),
+      ])
+      .build(),
+  );
+
+  // 3) 종료시간 vs 종료: I열 vs L열 (hh:mm 비교)
+  rules.push(
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied(
+        '=AND($I2<>"", $L2<>"", TEXT($I2,"hh:mm")=TEXT($L2,"hh:mm"))',
+      )
+      .setBackground(COLOR_POSITIVE)
+      .setRanges([
         resultSheet.getRange(`I2:I${lastRow}`),
+        resultSheet.getRange(`L2:L${lastRow}`),
+      ])
+      .build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied(
+        '=AND($I2<>"", $L2<>"", TEXT($I2,"hh:mm")<>TEXT($L2,"hh:mm"))',
+      )
+      .setBackground(COLOR_NEGATIVE)
+      .setRanges([
+        resultSheet.getRange(`I2:I${lastRow}`),
+        resultSheet.getRange(`L2:L${lastRow}`),
       ])
       .build(),
   );
@@ -202,7 +209,21 @@ function createComparisonSheet() {
   resultSheet.setConditionalFormatRules(rules);
 
   // ----------------------------------------------------
-  // 7. 시트 순서 정렬
+  // 6. [후순위 작업] SHEET_TARGET_ALL 서식 적용
+  // ----------------------------------------------------
+  if (targetAllSheet) {
+    Logger.log("6️⃣ [후순위 작업] SHEET_TARGET_ALL 서식 복사 적용 중...");
+    targetAllSheet
+      .getDataRange()
+      .copyTo(
+        resultSheet.getRange(1, 1),
+        SpreadsheetApp.CopyPasteType.PASTE_FORMAT,
+        false,
+      );
+  }
+
+  // ----------------------------------------------------
+  // 7. 시트 순서 정렬 및 활성화
   // ----------------------------------------------------
   Logger.log("7️⃣ [시트 정렬] 지정된 순서대로 시트 배치 중...");
   const orderList = [
