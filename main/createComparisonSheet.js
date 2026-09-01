@@ -39,7 +39,7 @@ function createComparisonSheet() {
   resultSheet = ss.insertSheet(SHEET_RESULT);
 
   // ----------------------------------------------------
-  // 2. 청구대상건 원본 전체 복사 (서식/멘션/링크 완벽 보존)
+  // 2. 청구대상건 원본 전체 복사 (A~I열 등 데이터 유지)
   // ----------------------------------------------------
   const targetRange = targetSheet.getDataRange();
   const lastRow = targetRange.getLastRow();
@@ -60,9 +60,15 @@ function createComparisonSheet() {
   );
 
   // ----------------------------------------------------
-  // 3. 서비스내용 입력 시트 데이터 맵핑 (M, J, L열 매칭)
+  // 3. I열(9번째 열) 뒤에 3개의 열 삽입 (J, K, L열 확보 -> 기존 열은 M, N, O...로 밀림)
   // ----------------------------------------------------
-  Logger.log("3️⃣ [서비스내용 입력] PK 데이터 맵핑 생성 중...");
+  Logger.log("3️⃣ [열 삽입] I열 뒤에 J, K, L열 공간 3개 삽입 중...");
+  resultSheet.insertColumnsAfter(9, 3); // 9번째(I열) 뒤에 3개 열 생성
+
+  // ----------------------------------------------------
+  // 4. 서비스내용 입력 시트 데이터 맵핑 (M, J, L열 매칭)
+  // ----------------------------------------------------
+  Logger.log("4️⃣ [서비스내용 입력] PK 데이터 맵핑 생성 중...");
   const serviceValues = serviceSheet.getDataRange().getValues();
 
   // 헤더 제외 후 Map 구성 (PK: 수급자성명 + YYYY-MM-DD)
@@ -83,9 +89,9 @@ function createComparisonSheet() {
   }, new Map());
 
   // ----------------------------------------------------
-  // 4. I열 오른쪽(J, K, L열)에 연동 열 추가 배치 및 서식 설정
+  // 5. 새로 만든 J, K, L열에 연동 데이터 배치 및 헤더 설정
   // ----------------------------------------------------
-  Logger.log("4️⃣ [데이터 연동] J, K, L열에 매칭 데이터 배치 중...");
+  Logger.log("5️⃣ [데이터 연동] 삽입된 J, K, L열에 데이터 배치 중...");
   const newColStart = 10; // J열 (10번째 열)
 
   // 헤더 입력 (J열: 제공시간, K열: 시작, L열: 종료)
@@ -93,7 +99,7 @@ function createComparisonSheet() {
     .getRange(1, newColStart, 1, 3)
     .setValues([["제공시간", "시작", "종료"]]);
 
-  // 헤더 서식 복사 (I열 서식을 J~L열에 복사)
+  // 헤더 서식 복사 (I열 헤더 서식을 J~L열에 복사)
   resultSheet
     .getRange(1, 9)
     .copyTo(
@@ -133,9 +139,9 @@ function createComparisonSheet() {
   resultSheet.getRange(1, newColStart, lastRow, 3).clearDataValidations();
 
   // ----------------------------------------------------
-  // 5. 조건부 서식 적용 (시작시간 vs 시작, 종료시간 vs 종료)
+  // 6. 조건부 서식 적용 (시작시간 vs 시작, 종료시간 vs 종료)
   // ----------------------------------------------------
-  Logger.log("5️⃣ [조건부 서식] 동적 색상 조건부 서식 적용 중...");
+  Logger.log("6️⃣ [조건부 서식] 동적 색상 조건부 서식 적용 중...");
   const rules = [];
 
   // 1) 시작시간 vs 시작: H열 vs K열 (hh:mm 비교)
@@ -189,12 +195,18 @@ function createComparisonSheet() {
   resultSheet.setConditionalFormatRules(rules);
 
   // ----------------------------------------------------
-  // 6. [후순위 작업] SHEET_TARGET_ALL 서식 적용
+  // 7. [서식 적용] 원본 A~I열 서식 복사 적용
   // ----------------------------------------------------
   if (targetAllSheet) {
-    Logger.log("6️⃣ [후순위 작업] SHEET_TARGET_ALL 서식 복사 적용 중...");
+    Logger.log("7️⃣ [서식 복사] 원본 A~I 영역 서식만 복사 적용 중...");
+    // 전체를 덮어쓰지 않고 원본의 열 범위만큼만 서식 복사
     targetAllSheet
-      .getDataRange()
+      .getRange(
+        1,
+        1,
+        targetAllSheet.getLastRow(),
+        targetAllSheet.getLastColumn(),
+      )
       .copyTo(
         resultSheet.getRange(1, 1),
         SpreadsheetApp.CopyPasteType.PASTE_FORMAT,
@@ -203,9 +215,16 @@ function createComparisonSheet() {
   }
 
   // ----------------------------------------------------
-  // 7. 시트 순서 정렬 및 활성화
+  // 8. [최종 표시형식 설정] K, L열 hh:mm 서식 강제 적용
   // ----------------------------------------------------
-  Logger.log("7️⃣ [시트 정렬] 지정된 순서대로 시트 배치 중...");
+  if (lastRow > 1) {
+    resultSheet.getRange(2, 11, lastRow - 1, 2).setNumberFormat("hh:mm");
+  }
+
+  // ----------------------------------------------------
+  // 9. 시트 순서 정렬 및 활성화
+  // ----------------------------------------------------
+  Logger.log("9️⃣ [시트 정렬] 지정된 순서대로 시트 배치 중...");
   const orderList = [
     SHEET_REALTIME,
     SHEET_TARGET_ALL,
