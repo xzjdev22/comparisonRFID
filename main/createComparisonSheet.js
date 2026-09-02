@@ -108,11 +108,6 @@ function createComparisonSheet() {
       false,
     );
 
-  // 연동 열 너비 설정 (서비스내용 입력 시트 원본 너비 적용)
-  resultSheet.setColumnWidth(10, serviceSheet.getColumnWidth(13)); // M열 너비 -> J열(제공시간) 적용
-  resultSheet.setColumnWidth(11, serviceSheet.getColumnWidth(10)); // J열 너비 -> K열(시작) 적용
-  resultSheet.setColumnWidth(12, serviceSheet.getColumnWidth(12)); // L열 너비 -> L열(종료) 적용
-
   const targetValues = targetSheet.getDataRange().getValues();
 
   // 매칭 데이터 배열 생성 (B열: 수급자성명, H열: 시작시간/일자)
@@ -199,7 +194,6 @@ function createComparisonSheet() {
   // ----------------------------------------------------
   if (targetAllSheet) {
     Logger.log("7️⃣ [서식 복사] 원본 A~I 영역 서식만 복사 적용 중...");
-    // 전체를 덮어쓰지 않고 원본의 열 범위만큼만 서식 복사
     targetAllSheet
       .getRange(
         1,
@@ -222,9 +216,58 @@ function createComparisonSheet() {
   }
 
   // ----------------------------------------------------
-  // 9. 시트 순서 정렬 및 활성화
+  // 9. [열 크기 지정 설정] A~O열 크기 강제 적용
   // ----------------------------------------------------
-  Logger.log("9️⃣ [시트 정렬] 지정된 순서대로 시트 배치 중...");
+  Logger.log("9️⃣ [열 크기 설정] A~O열 너비 지정 적용 중...");
+  const columnWidths = {
+    1: 124, // A
+    2: 104, // B
+    3: 157, // C
+    4: 96, // D
+    5: 160, // E
+    6: 112, // F
+    7: 80, // G
+    8: 180, // H
+    9: 180, // I
+    10: 80, // J
+    11: 72, // K
+    12: 72, // L
+    13: 102, // M
+    14: 200, // N
+    15: 200, // O
+  };
+
+  Object.entries(columnWidths).forEach(([colIndex, width]) => {
+    resultSheet.setColumnWidth(Number(colIndex), width);
+  });
+
+  // ----------------------------------------------------
+  // 10. [열/행 정리] O열 이후 열 삭제 및 데이터 없는 행 삭제
+  // ----------------------------------------------------
+  Logger.log("🔟 [불필요 행/열 삭제] O열 이후 및 데이터 없는 행 정리 중...");
+
+  // O(15)열 이후 제거
+  const maxColumns = resultSheet.getMaxColumns();
+  if (maxColumns > 15) {
+    resultSheet.deleteColumns(16, maxColumns - 15);
+  }
+
+  // 데이터 없는 행 제거 (lastRow 이후)
+  const maxRows = resultSheet.getMaxRows();
+  if (maxRows > lastRow) {
+    resultSheet.deleteRows(lastRow + 1, maxRows - lastRow);
+  }
+
+  // ----------------------------------------------------
+  // 11. [행 높이 설정] 모든 행 크기 40으로 강제 설정
+  // ----------------------------------------------------
+  Logger.log("1️⃣1️⃣ [행 높이] 모든 행 크기 40픽셀로 변경 중...");
+  resultSheet.setRowHeights(1, lastRow, 40);
+
+  // ----------------------------------------------------
+  // 12. 시트 순서 정렬 및 활성화
+  // ----------------------------------------------------
+  Logger.log("1️⃣2️⃣ [시트 정렬] 지정된 순서대로 시트 배치 중...");
   const orderList = [
     SHEET_REALTIME,
     SHEET_TARGET_ALL,
